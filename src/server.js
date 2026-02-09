@@ -682,6 +682,230 @@ app.post('/v1/messages/count_tokens', (req, res) => {
 });
 
 /**
+ * OpenAI-compatible Chat Completions API
+ * POST /v1/chat/completions
+ */
+app.post('/v1/chat/completions', async (req, res) => {
+    try {
+        await ensureInitialized();
+
+        // Import converters
+        const { convertOpenAIToAnthropic, convertAnthropicToOpenAI } = await import('./format/index.js');
+
+        // Convert OpenAI request to Anthropic format
+        const anthropicRequest = convertOpenAIToAnthropic(req.body);
+        const modelId = anthropicRequest.model;
+        const isStreaming = anthropicRequest.stream;
+
+        logger.info(`[API] OpenAI request for model: ${modelId}, stream: ${!!isStreaming}`);
+
+        // Validate model
+        const { account: validationAccount } = accountManager.selectAccount();
+        if (validationAccount) {
+            const token = await accountManager.getTokenForAccount(validationAccount);
+            const projectId = validationAccount.subscription?.projectId || null;
+            const valid = await isValidModel(modelId, token, projectId);
+
+            if (!valid) {
+                throw new Error(`invalid_request_error: Invalid model: ${modelId}. Use /v1/models to see available models.`);
+            }
+        }
+
+        if (isStreaming) {
+            // Handle streaming
+            try {
+                const generator = sendMessageStream(anthropicRequest, accountManager, FALLBACK_ENABLED);
+                const firstResult = await generator.next();
+
+                res.status(200);
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                res.setHeader('X-Accel-Buffering', 'no');
+                res.flushHeaders();
+
+                // Send first chunk if available
+                if (!firstResult.done) {
+                    const openaiEvent = convertAnthropicToOpenAI(firstResult.value, modelId, true);
+                    if (openaiEvent) {
+                        res.write(`data: ${JSON.stringify(openaiEvent)}\n\n`);
+                        if (res.flush) res.flush();
+                    }
+                }
+
+                // Stream remaining chunks
+                for await (const event of generator) {
+                    const openaiEvent = convertAnthropicToOpenAI(event, modelId, true);
+                    if (openaiEvent) {
+                        res.write(`data: ${JSON.stringify(openaiEvent)}\n\n`);
+                        if (res.flush) res.flush();
+                    }
+                }
+
+                res.write('data: [DONE]\n\n');
+                res.end();
+            } catch (error) {
+                if (!res.headersSent) {
+                    logger.error('[API] OpenAI streaming error:', error);
+                    const { statusCode, errorMessage } = parseError(error);
+                    return res.status(statusCode).json({
+                        error: {
+                            message: errorMessage,
+                            type: 'api_error',
+                            code: null
+                        }
+                    });
+                }
+
+                logger.error('[API] OpenAI mid-stream error:', error);
+                res.write(`data: ${JSON.stringify({
+                    error: {
+                        message: error.message,
+                        type: 'api_error',
+                        code: null
+                    }
+                })}\n\n`);
+                res.end();
+            }
+        } else {
+            // Handle non-streaming
+            const anthropicResponse = await sendMessage(anthropicRequest, accountManager, FALLBACK_ENABLED);
+            const openaiResponse = convertAnthropicToOpenAI(anthropicResponse, modelId, false);
+            res.json(openaiResponse);
+        }
+    } catch (error) {
+        logger.error('[API] OpenAI error:', error);
+        const { statusCode, errorMessage } = parseError(error);
+
+        if (!res.headersSent) {
+            res.status(statusCode).json({
+                error: {
+                    message: errorMessage,
+                    type: 'api_error',
+                    code: null
+                }
+            });
+        } else {
+            res.end();
+        }
+    }
+});
+
+/**
+ * Gemini-compatible generateContent API
+ * POST /v1/models/:model:generateContent
+ * POST /v1/models/:model:streamGenerateContent
+ */
+app.post('/v1/models/:model::method(generateContent|streamGenerateContent)', async (req, res) => {
+    try {
+        await ensureInitialized();
+
+        // Import converters
+        const { convertGeminiToAnthropic, convertAnthropicToGemini } = await import('./format/index.js');
+
+        // Extract model from URL
+        const modelId = req.params.model;
+        const method = req.params.method;
+        const isStreaming = method === 'streamGenerateContent';
+
+        // Convert Gemini request to Anthropic format
+        const anthropicRequest = convertGeminiToAnthropic(req.body, modelId);
+        anthropicRequest.stream = isStreaming;
+
+        logger.info(`[API] Gemini request for model: ${modelId}, stream: ${!!isStreaming}`);
+
+        // Validate model
+        const { account: validationAccount } = accountManager.selectAccount();
+        if (validationAccount) {
+            const token = await accountManager.getTokenForAccount(validationAccount);
+            const projectId = validationAccount.subscription?.projectId || null;
+            const valid = await isValidModel(modelId, token, projectId);
+
+            if (!valid) {
+                throw new Error(`invalid_request_error: Invalid model: ${modelId}. Use /v1/models to see available models.`);
+            }
+        }
+
+        if (isStreaming) {
+            // Handle streaming
+            try {
+                const generator = sendMessageStream(anthropicRequest, accountManager, FALLBACK_ENABLED);
+                const firstResult = await generator.next();
+
+                res.status(200);
+                res.setHeader('Content-Type', 'application/json');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                res.setHeader('X-Accel-Buffering', 'no');
+                res.flushHeaders();
+
+                // Send first chunk if available
+                if (!firstResult.done) {
+                    const geminiEvent = convertAnthropicToGemini(firstResult.value, modelId, true);
+                    if (geminiEvent) {
+                        res.write(JSON.stringify(geminiEvent) + '\n');
+                        if (res.flush) res.flush();
+                    }
+                }
+
+                // Stream remaining chunks
+                for await (const event of generator) {
+                    const geminiEvent = convertAnthropicToGemini(event, modelId, true);
+                    if (geminiEvent) {
+                        res.write(JSON.stringify(geminiEvent) + '\n');
+                        if (res.flush) res.flush();
+                    }
+                }
+
+                res.end();
+            } catch (error) {
+                if (!res.headersSent) {
+                    logger.error('[API] Gemini streaming error:', error);
+                    const { statusCode, errorMessage } = parseError(error);
+                    return res.status(statusCode).json({
+                        error: {
+                            message: errorMessage,
+                            code: statusCode,
+                            status: 'INTERNAL'
+                        }
+                    });
+                }
+
+                logger.error('[API] Gemini mid-stream error:', error);
+                res.write(JSON.stringify({
+                    error: {
+                        message: error.message,
+                        code: 500,
+                        status: 'INTERNAL'
+                    }
+                }) + '\n');
+                res.end();
+            }
+        } else {
+            // Handle non-streaming
+            const anthropicResponse = await sendMessage(anthropicRequest, accountManager, FALLBACK_ENABLED);
+            const geminiResponse = convertAnthropicToGemini(anthropicResponse, modelId, false);
+            res.json(geminiResponse);
+        }
+    } catch (error) {
+        logger.error('[API] Gemini error:', error);
+        const { statusCode, errorMessage } = parseError(error);
+
+        if (!res.headersSent) {
+            res.status(statusCode).json({
+                error: {
+                    message: errorMessage,
+                    code: statusCode,
+                    status: 'INTERNAL'
+                }
+            });
+        } else {
+            res.end();
+        }
+    }
+});
+
+/**
  * Main messages endpoint - Anthropic Messages API compatible
  */
 

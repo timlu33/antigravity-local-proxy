@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/antigravity-claude-proxy.svg)](https://www.npmjs.com/package/antigravity-claude-proxy)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A proxy server that exposes an **Anthropic-compatible API** backed by **Antigravity's Cloud Code**, letting you use Claude and Gemini models with **Claude Code CLI** and **OpenClaw / ClawdBot**.
+A proxy server that exposes **Anthropic, OpenAI, and Gemini compatible APIs** backed by **Antigravity's Cloud Code**, letting you use Claude and Gemini models with **Claude Code CLI**, **OpenAI SDKs**, **Google AI SDKs**, and other AI tools.
 
 ![Antigravity Claude Proxy Banner](images/banner.png)
 
@@ -33,17 +33,25 @@ A proxy server that exposes an **Anthropic-compatible API** backed by **Antigrav
 
 ```
 ┌──────────────────┐     ┌─────────────────────┐     ┌────────────────────────────┐
-│   Claude Code    │────▶│  This Proxy Server  │────▶│  Antigravity Cloud Code    │
-│   (Anthropic     │     │  (Anthropic → Google│     │  (daily-cloudcode-pa.      │
-│    API format)   │     │   Generative AI)    │     │   sandbox.googleapis.com)  │
+│  AI Clients      │────▶│  This Proxy Server  │────▶│  Antigravity Cloud Code    │
+│  - Claude Code   │     │  Multi-format API   │     │  (daily-cloudcode-pa.      │
+│  - OpenAI SDK    │     │  Converter          │     │   sandbox.googleapis.com)  │
+│  - Gemini SDK    │     │                     │     │                            │
 └──────────────────┘     └─────────────────────┘     └────────────────────────────┘
 ```
 
-1. Receives requests in **Anthropic Messages API format**
+**Supported API Formats:**
+- **Anthropic Messages API** (`/v1/messages`) - For Claude Code CLI, OpenClaw, etc.
+- **OpenAI Chat Completions API** (`/v1/chat/completions`) - For OpenAI SDKs and compatible tools
+- **Gemini (Google AI) API** (`/v1/models/{model}:generateContent`) - For Google AI SDKs
+
+**Request Flow:**
+1. Receives requests in Anthropic, OpenAI, or Gemini format
 2. Uses OAuth tokens from added Google accounts (or Antigravity's local database)
-3. Transforms to **Google Generative AI format** with Cloud Code wrapping
-4. Sends to Antigravity's Cloud Code API
-5. Converts responses back to **Anthropic format** with full thinking/streaming support
+3. Converts all formats to Anthropic Messages API format (internal)
+4. Transforms to **Google Generative AI format** with Cloud Code wrapping
+5. Sends to Antigravity's Cloud Code API
+6. Converts responses back to the **original request format** with full thinking/streaming support
 
 ## Prerequisites
 
@@ -279,6 +287,174 @@ function claude-antigravity {
 ```
 
 Then run `claude` for official API or `claude-antigravity` for this proxy.
+
+---
+
+## API Formats
+
+The proxy supports three API formats, all backed by the same Antigravity Cloud Code service:
+
+### 1. Anthropic Messages API (Default)
+
+**Endpoint:** `POST /v1/messages`
+
+This is the default format used by Claude Code CLI and OpenClaw.
+
+**Example:**
+
+```bash
+curl http://localhost:8080/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: test" \
+  -d '{
+    "model": "claude-sonnet-4-5-thinking",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ],
+    "max_tokens": 1024
+  }'
+```
+
+**With Python SDK:**
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic(
+    api_key="test",
+    base_url="http://localhost:8080"
+)
+
+response = client.messages.create(
+    model="claude-sonnet-4-5-thinking",
+    messages=[{"role": "user", "content": "Hello!"}],
+    max_tokens=1024
+)
+print(response.content[0].text)
+```
+
+### 2. OpenAI Chat Completions API
+
+**Endpoint:** `POST /v1/chat/completions`
+
+Compatible with OpenAI SDKs and tools that use the OpenAI API format.
+
+**Example:**
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer test" \
+  -d '{
+    "model": "gemini-3-flash",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Hello!"}
+    ],
+    "max_tokens": 1024
+  }'
+```
+
+**With OpenAI Python SDK:**
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="test",
+    base_url="http://localhost:8080/v1"
+)
+
+response = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello!"}
+    ],
+    max_tokens=1024
+)
+print(response.choices[0].message.content)
+```
+
+**Streaming:**
+
+```python
+stream = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[{"role": "user", "content": "Hello!"}],
+    stream=True
+)
+
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+```
+
+### 3. Gemini (Google AI) API
+
+**Endpoint:** `POST /v1/models/{model}:generateContent`
+**Streaming:** `POST /v1/models/{model}:streamGenerateContent`
+
+Compatible with Google AI SDKs and tools.
+
+**Example:**
+
+```bash
+curl http://localhost:8080/v1/models/gemini-3-flash:generateContent \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: test" \
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [{"text": "Hello!"}]
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 1024
+    }
+  }'
+```
+
+**With Google AI Python SDK:**
+
+```python
+import google.generativeai as genai
+
+# Configure to use the proxy
+genai.configure(
+    api_key="test",
+    transport="rest",
+    client_options={"api_endpoint": "http://localhost:8080/v1"}
+)
+
+model = genai.GenerativeModel("gemini-3-flash")
+response = model.generate_content("Hello!")
+print(response.text)
+```
+
+**Streaming:**
+
+```python
+response = model.generate_content("Hello!", stream=True)
+for chunk in response:
+    print(chunk.text, end="")
+```
+
+### Model Compatibility
+
+All three API formats support the same models:
+
+| Model ID | Type | Context |
+| --- | --- | --- |
+| `claude-opus-4-5-thinking` | Claude Opus with thinking | 200K |
+| `claude-sonnet-4-5-thinking` | Claude Sonnet with thinking | 200K |
+| `claude-sonnet-4-5` | Claude Sonnet (fast) | 200K |
+| `gemini-3-pro-high` | Gemini 3 Pro (high quality) | 2M |
+| `gemini-3-pro-low` | Gemini 3 Pro (balanced) | 2M |
+| `gemini-3-flash` | Gemini 3 Flash (fast) | 1M |
+
+Use `/v1/models` endpoint to see the full list of available models.
 
 ---
 

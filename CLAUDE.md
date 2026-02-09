@@ -4,9 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Antigravity Claude Proxy is a Node.js proxy server that exposes an Anthropic-compatible API backed by Antigravity's Cloud Code service. It enables using Claude models (`claude-sonnet-4-5-thinking`, `claude-opus-4-5-thinking`) and Gemini models (`gemini-3-flash`, `gemini-3-pro-low`, `gemini-3-pro-high`) with Claude Code CLI.
+Antigravity Claude Proxy is a Node.js proxy server that exposes **three compatible API formats** (Anthropic, OpenAI, Gemini) backed by Antigravity's Cloud Code service. It enables using Claude models (`claude-sonnet-4-5-thinking`, `claude-opus-4-5-thinking`) and Gemini models (`gemini-3-flash`, `gemini-3-pro-low`, `gemini-3-pro-high`) with various AI tools including Claude Code CLI, OpenAI SDKs, and Google AI SDKs.
 
-The proxy translates requests from Anthropic Messages API format → Google Generative AI format → Antigravity Cloud Code API, then converts responses back to Anthropic format with full thinking/streaming support.
+**Supported API Formats:**
+- **Anthropic Messages API** (`/v1/messages`) - Primary format for Claude Code CLI
+- **OpenAI Chat Completions API** (`/v1/chat/completions`) - For OpenAI SDK compatibility
+- **Gemini (Google AI) API** (`/v1/models/{model}:generateContent`) - For Google AI SDK compatibility
+
+The proxy translates all formats through a unified pipeline:
+1. **Input**: Anthropic/OpenAI/Gemini format → Anthropic Messages API (internal normalization)
+2. **Processing**: Anthropic → Google Generative AI format → Antigravity Cloud Code API
+3. **Output**: Google format → Anthropic → Original request format (with thinking/streaming support)
 
 ## Commands
 
@@ -68,8 +76,28 @@ node tests/test-strategies.cjs
 
 **Request Flow:**
 ```
-Claude Code CLI → Express Server (server.js) → CloudCode Client → Antigravity Cloud Code API
+AI Clients (Claude Code / OpenAI SDK / Gemini SDK)
+    ↓
+Express Server (server.js) - API Format Detection
+    ↓
+Format Converters (openai-converter.js / gemini-converter.js)
+    ↓
+Anthropic Messages API (internal normalization)
+    ↓
+Google Generative AI Format (request-converter.js)
+    ↓
+CloudCode Client → Antigravity Cloud Code API
+    ↓
+Response Converters (response-converter.js → format-specific converters)
+    ↓
+Original API Format (Anthropic / OpenAI / Gemini)
 ```
+
+**Supported Endpoints:**
+- `POST /v1/messages` - Anthropic Messages API
+- `POST /v1/chat/completions` - OpenAI Chat Completions API
+- `POST /v1/models/{model}:generateContent` - Gemini (Google AI) API
+- `POST /v1/models/{model}:streamGenerateContent` - Gemini streaming
 
 **Directory Structure:**
 
@@ -123,10 +151,12 @@ src/
 ├── cli/                        # CLI tools
 │   └── accounts.js             # Account management CLI
 │
-├── format/                     # Format conversion (Anthropic ↔ Google)
+├── format/                     # Multi-format conversion (Anthropic ↔ OpenAI ↔ Gemini ↔ Google)
 │   ├── index.js                # Re-exports all converters
-│   ├── request-converter.js    # Anthropic → Google conversion
-│   ├── response-converter.js   # Google → Anthropic conversion
+│   ├── openai-converter.js     # OpenAI ↔ Anthropic conversion
+│   ├── gemini-converter.js     # Gemini (Google AI) ↔ Anthropic conversion
+│   ├── request-converter.js    # Anthropic → Google Generative AI conversion
+│   ├── response-converter.js   # Google Generative AI → Anthropic conversion
 │   ├── content-converter.js    # Message content conversion
 │   ├── schema-sanitizer.js     # JSON Schema cleaning for Gemini
 │   ├── thinking-utils.js       # Thinking block validation/recovery
