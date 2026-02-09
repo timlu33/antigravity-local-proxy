@@ -62,18 +62,7 @@ A proxy server that exposes **Anthropic, OpenAI, and Gemini compatible APIs** ba
 
 ## Installation
 
-### Option 1: npm (Recommended)
-
-```bash
-# Run directly with npx (no install needed)
-npx antigravity-claude-proxy@latest start
-
-# Or install globally
-npm install -g antigravity-claude-proxy@latest
-antigravity-claude-proxy start
-```
-
-### Option 2: Clone Repository
+### Clone Repository
 
 ```bash
 git clone https://github.com/badri-s2001/antigravity-claude-proxy.git
@@ -89,13 +78,6 @@ npm start
 ### 1. Start the Proxy Server
 
 ```bash
-# If installed via npm
-antigravity-claude-proxy start
-
-# If using npx
-npx antigravity-claude-proxy@latest start
-
-# If cloned locally
 npm start
 ```
 
@@ -105,37 +87,13 @@ The server runs on `http://localhost:8080` by default.
 
 Choose one of the following methods to authorize the proxy:
 
-#### **Method A: Web Dashboard (Recommended)**
+#### **Web Dashboard **
 
 1. With the proxy running, open `http://localhost:8080` in your browser.
 2. Navigate to the **Accounts** tab and click **Add Account**.
 3. Complete the Google OAuth authorization in the popup window.
 
 > **Headless/Remote Servers**: If running on a server without a browser, the WebUI supports a "Manual Authorization" mode. After clicking "Add Account", you can copy the OAuth URL, complete authorization on your local machine, and paste the authorization code back.
-
-#### **Method B: CLI (Desktop or Headless)**
-
-If you prefer the terminal or are on a remote server:
-
-```bash
-# Desktop (opens browser)
-antigravity-claude-proxy accounts add
-
-# Headless (Docker/SSH)
-antigravity-claude-proxy accounts add --no-browser
-```
-
-> For full CLI account management options, run `antigravity-claude-proxy accounts --help`.
-
-#### **Method C: Automatic (Antigravity Users)**
-
-If you have the **Antigravity** app installed and logged in, the proxy will automatically detect your local session. No additional setup is required.
-
-To use a custom port:
-
-```bash
-PORT=3001 antigravity-claude-proxy start
-```
 
 ### 3. Verify It's Working
 
@@ -243,7 +201,7 @@ Restart your terminal for changes to take effect.
 
 ```bash
 # Make sure the proxy is running first
-antigravity-claude-proxy start
+npm start
 
 # In another terminal, run Claude Code
 claude
@@ -479,6 +437,7 @@ Use `/v1/models` endpoint to see the full list of available models.
 
 This project is based on insights and code from:
 
+- Forked from [badrisnarayanan/antigravity-claude-proxy](https://github.com/badrisnarayanan/antigravity-claude-proxy).
 - [opencode-antigravity-auth](https://github.com/NoeFabris/opencode-antigravity-auth) - Antigravity OAuth plugin for OpenCode
 - [claude-code-proxy](https://github.com/1rgs/claude-code-proxy) - Anthropic API proxy using LiteLLM
 
@@ -489,9 +448,3 @@ This project is based on insights and code from:
 MIT
 
 ---
-
-<a href="https://buymeacoffee.com/badrinarayanans" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a>
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=badrisnarayanan/antigravity-claude-proxy&type=date&legend=top-left&cache-control=no-cache)](https://www.star-history.com/#badrisnarayanan/antigravity-claude-proxy&type=date&legend=top-left)
